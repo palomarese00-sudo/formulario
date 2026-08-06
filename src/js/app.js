@@ -1,7 +1,38 @@
 /**
  * VILLA VICARIO - LEAD QUALIFICATION & GHL ROUTING ENGINE
  * Dynamic multi-step lead filtering for Buyers, Brokers, and Suppliers.
+ * Integrated with Backend API (/qualification/submit)
  */
+
+// Configuración de Entorno (Leída desde .env / window.ENV)
+const API_URL = (window.ENV && window.ENV.API_URL) || 'http://localhost:3000/qualification/submit';
+const GHL_LOCATION_ID = (window.ENV && window.ENV.GHL_LOCATION_ID) || 'VILLA_VICARIO_GHL_LOC_01';
+
+// Diccionario para visualización amigable en tablas y confirmaciones de la interfaz local
+const ENUM_DISPLAY_NAMES = {
+  comprador: "Comprador Personal",
+  familiar: "Familiar de Comprador",
+  inversionista: "Inversionista / Renta",
+  broker: "Broker / Asesor",
+  proveedor: "Proveedor Comercial",
+  vivir: "Para vivir yo / mi familia todo el año",
+  temporada: "Casa de temporada / segunda residencia",
+  renta: "Inversión para renta",
+  ahora: "Estoy listo para cerrar ahora 🔥",
+  "1_3_meses": "En los próximos 1-3 meses",
+  explorando: "Explorando (más de 3 meses)",
+  contado: "Contado 💎",
+  credito: "Crédito hipotecario",
+  sin_definir: "Aún por definir",
+  menos_5m: "Menos de $5,000,000 MXN",
+  "5m_6_5m": "$5,000,000 - $6,500,000 MXN",
+  "6_5m_8m": "$6,500,000 - $8,000,000 MXN",
+  mas_8m: "Más de $8,000,000 MXN 🔥"
+};
+
+function getDisplayName(val) {
+  return ENUM_DISPLAY_NAMES[val] || val || 'N/A';
+}
 
 // Application State
 const appState = {
@@ -12,12 +43,13 @@ const appState = {
     roleCategory: '',
     
     // Comprador fields (Block B)
-    usoIntencion: '',
+    intencionUso: '',
     horizonteCompra: '',
     formaPago: '',
     presupuesto: '',
     nombreComprador: '',
     whatsappComprador: '',
+    emailComprador: '',
     canalContacto: '',
 
     // Broker fields (Block C)
@@ -30,6 +62,7 @@ const appState = {
     // Proveedor fields (Block D)
     empresaProveedor: '',
     contactoProveedor: '',
+    telefonoProveedor: '',
     servicioProveedor: '',
     emailProveedor: ''
   },
@@ -156,8 +189,8 @@ function initFormButtons() {
 
   // Comprador Steps
   document.getElementById('btn-next-B1').addEventListener('click', () => {
-    if (!appState.formData.usoIntencion) {
-      alert('Selecciona una opción de intencion de uso.');
+    if (!appState.formData.intencionUso) {
+      alert('Selecciona una opción de intención de uso.');
       return;
     }
     goToStep('B2');
@@ -196,13 +229,14 @@ function initFormButtons() {
   document.getElementById('btn-back-B4').addEventListener('click', () => goToStep('B3'));
 
   document.getElementById('btn-submit-comprador').addEventListener('click', () => {
+    hideErrorBanner('B5');
     const nombre = document.getElementById('comprador-nombre').value.trim();
     const whatsapp = document.getElementById('comprador-whatsapp').value.trim();
     const email = document.getElementById('comprador-email').value.trim();
     const canal = document.getElementById('comprador-canal').value;
 
     if (!nombre || !whatsapp) {
-      alert('Por favor ingresa tu Nombre completo y WhatsApp.');
+      showErrorBanner('B5', 'Por favor ingresa tu Nombre completo y Teléfono WhatsApp.');
       return;
     }
 
@@ -211,10 +245,13 @@ function initFormButtons() {
     appState.formData.emailComprador = email;
     appState.formData.canalContacto = canal;
 
-    processFormSubmission();
+    processFormSubmission('B5', 'btn-submit-comprador');
   });
 
-  document.getElementById('btn-back-B5').addEventListener('click', () => goToStep('B4'));
+  document.getElementById('btn-back-B5').addEventListener('click', () => {
+    hideErrorBanner('B5');
+    goToStep('B4');
+  });
 
   // Broker Steps
   document.getElementById('btn-next-C1').addEventListener('click', () => {
@@ -234,12 +271,13 @@ function initFormButtons() {
   document.getElementById('btn-back-C1').addEventListener('click', () => goToStep('A1'));
 
   document.getElementById('btn-submit-broker').addEventListener('click', () => {
+    hideErrorBanner('C2');
     const inmobiliaria = document.getElementById('broker-inmobiliaria').value.trim();
     const perfil = document.getElementById('broker-perfil').value.trim();
     const whatsapp = document.getElementById('broker-whatsapp').value.trim();
 
     if (!whatsapp) {
-      alert('Por favor ingresa tu WhatsApp de contacto directo.');
+      showErrorBanner('C2', 'Por favor ingresa tu WhatsApp de contacto directo.');
       return;
     }
 
@@ -247,27 +285,41 @@ function initFormButtons() {
     appState.formData.perfilCliente = perfil || 'Cliente interesado en reventa';
     appState.formData.whatsappBroker = whatsapp;
 
-    processFormSubmission();
+    processFormSubmission('C2', 'btn-submit-broker');
   });
 
-  document.getElementById('btn-back-C2').addEventListener('click', () => goToStep('C1'));
+  document.getElementById('btn-back-C2').addEventListener('click', () => {
+    hideErrorBanner('C2');
+    goToStep('C1');
+  });
 
   // Proveedor Steps
   document.getElementById('btn-submit-proveedor').addEventListener('click', () => {
+    hideErrorBanner('D1');
     const empresa = document.getElementById('proveedor-empresa').value.trim();
     const contacto = document.getElementById('proveedor-contacto').value.trim();
+    const telefono = document.getElementById('proveedor-telefono').value.trim();
     const email = document.getElementById('proveedor-email').value.trim();
     const servicio = document.getElementById('proveedor-servicio').value.trim();
 
+    if ((!contacto && !empresa) || !telefono) {
+      showErrorBanner('D1', 'Por favor ingresa el Nombre del representante y tu Teléfono de contacto.');
+      return;
+    }
+
     appState.formData.empresaProveedor = empresa;
-    appState.formData.contactoProveedor = contacto;
+    appState.formData.contactoProveedor = contacto || empresa;
+    appState.formData.telefonoProveedor = telefono;
     appState.formData.emailProveedor = email;
     appState.formData.servicioProveedor = servicio;
 
-    processFormSubmission();
+    processFormSubmission('D1', 'btn-submit-proveedor');
   });
 
-  document.getElementById('btn-back-D1').addEventListener('click', () => goToStep('A1'));
+  document.getElementById('btn-back-D1').addEventListener('click', () => {
+    hideErrorBanner('D1');
+    goToStep('A1');
+  });
 
   // Restart Form
   document.getElementById('btn-restart-form').addEventListener('click', () => {
@@ -312,13 +364,63 @@ function updateProgressBar(stepId) {
   label.textContent = config.label;
 }
 
-// GHL Qualification & Routing Algorithm
+// Funciones auxiliares para mostrar/ocultar banners de error en la interfaz
+function showErrorBanner(stepId, message) {
+  const banner = document.getElementById(`error-banner-${stepId}`);
+  if (banner) {
+    banner.textContent = message;
+    banner.style.display = 'block';
+  } else {
+    alert(message);
+  }
+}
+
+function hideErrorBanner(stepId) {
+  const banner = document.getElementById(`error-banner-${stepId}`);
+  if (banner) {
+    banner.style.display = 'none';
+    banner.textContent = '';
+  }
+}
+
+// Construir el payload estrictamente de acuerdo con el DTO del backend
+function buildBackendPayload() {
+  const d = appState.formData;
+  
+  const payload = {
+    nombre: (d.nombreComprador || d.nombreBroker || d.contactoProveedor || d.empresaProveedor || 'Contacto Villa Vicario').trim(),
+    telefono: (d.whatsappComprador || d.whatsappBroker || d.telefonoProveedor || '').trim(),
+    rol: d.roleOption || 'comprador', // "comprador" | "familiar" | "inversionista" | "broker" | "proveedor"
+    origen: 'web' // Inyección automática de origen "web"
+  };
+
+  const email = (d.emailComprador || d.emailBroker || d.emailProveedor || '').trim();
+  if (email) {
+    payload.email = email;
+  }
+
+  if (d.roleCategory === 'comprador') {
+    if (d.intencionUso) payload.intencionUso = d.intencionUso;
+    if (d.horizonteCompra) payload.horizonteCompra = d.horizonteCompra;
+    if (d.formaPago) payload.formaPago = d.formaPago;
+    if (d.presupuesto) payload.presupuesto = d.presupuesto;
+  }
+
+  if (d.roleCategory === 'broker') {
+    if (d.tipoInmobiliaria) payload.inmobiliaria = d.tipoInmobiliaria;
+    if (d.perfilCliente) payload.perfilCliente = d.perfilCliente;
+  }
+
+  return payload;
+}
+
+// GHL Qualification & Routing Algorithm (Cálculo local e integración con respuesta del servidor)
 function calculateRoutingResult() {
   const d = appState.formData;
   
   if (d.roleCategory === 'comprador') {
-    const isBudgetOk = d.presupuesto !== 'Menos de $5,000,000 MXN';
-    const isHorizonHot = d.horizonteCompra === 'Estoy listo para cerrar ahora' || d.horizonteCompra === 'En los próximos 1-3 meses';
+    const isBudgetOk = d.presupuesto !== 'menos_5m';
+    const isHorizonHot = d.horizonteCompra === 'ahora' || d.horizonteCompra === '1_3_meses';
 
     if (!isBudgetOk) {
       return {
@@ -384,33 +486,97 @@ function calculateRoutingResult() {
   };
 }
 
-// Process Form Submission
-function processFormSubmission() {
+// Process Form Submission con conexión a API Backend y manejo de estados
+async function processFormSubmission(stepId = 'B5', btnId = 'btn-submit-comprador') {
+  const btn = document.getElementById(btnId);
+  const originalText = btn ? btn.innerHTML : 'Enviar Formulario ✨';
+
+  // Bloquear botón de envío temporalmente (prevención de envíos dobles)
+  if (btn) {
+    btn.disabled = true;
+    btn.style.opacity = '0.7';
+    btn.style.cursor = 'not-allowed';
+    btn.innerHTML = 'Enviando al Servidor... ⏳';
+  }
+
+  const payload = buildBackendPayload();
   const result = calculateRoutingResult();
 
-  // Create Lead Object
-  const newLead = {
-    id: `VV-${Math.floor(1000 + Math.random() * 9000)}`,
-    timestamp: new Date().toISOString(),
-    nombre: appState.formData.nombreComprador || appState.formData.nombreBroker || appState.formData.contactoProveedor || 'Contacto Villa Vicario',
-    whatsapp: appState.formData.whatsappComprador || appState.formData.whatsappBroker || 'N/A',
-    email: appState.formData.emailComprador || appState.formData.emailBroker || appState.formData.emailProveedor || 'Sin correo',
-    arquetipo: result.arquetipo,
-    tag: result.tag,
-    presupuesto: appState.formData.presupuesto || 'N/A',
-    horizonte: appState.formData.horizonteCompra || 'N/A',
-    formaPago: appState.formData.formaPago || 'N/A',
-    accionGHL: result.accionGHL,
-    sla: result.sla,
-    rawDetails: { ...appState.formData }
-  };
+  try {
+    const response = await fetch(API_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(payload)
+    });
 
-  appState.leads.unshift(newLead);
-  saveLeadsToStorage();
+    if (response.status === 201 || response.ok) {
+      let resData = {};
+      try {
+        resData = await response.json();
+      } catch (e) {
+        resData = {};
+      }
 
-  // Render Confirmation UI
-  renderConfirmationScreen(result, newLead);
-  goToStep('CONFIRMATION');
+      // Si el objeto devuelto incluye una propiedad mensaje (habitual cuando rol es "proveedor" o reglas del servidor)
+      if (resData.mensaje && typeof resData.mensaje === 'string') {
+        result.mensaje = resData.mensaje;
+      }
+
+      // Si el backend dictamina el tag del lead, sincronizarlo
+      if (resData.tag && typeof resData.tag === 'string') {
+        result.tag = resData.tag;
+      }
+
+      const leadId = resData.lead && resData.lead.id ? resData.lead.id : `VV-${Math.floor(1000 + Math.random() * 9000)}`;
+
+      // Create Lead Object para log local y vista del inspector
+      const newLead = {
+        id: leadId,
+        timestamp: new Date().toISOString(),
+        nombre: payload.nombre,
+        whatsapp: payload.telefono,
+        email: payload.email || 'Sin correo',
+        arquetipo: result.arquetipo,
+        tag: result.tag,
+        presupuesto: getDisplayName(appState.formData.presupuesto),
+        horizonte: getDisplayName(appState.formData.horizonteCompra),
+        formaPago: getDisplayName(appState.formData.formaPago),
+        accionGHL: result.accionGHL,
+        sla: result.sla,
+        payloadSent: payload,
+        rawDetails: { ...appState.formData }
+      };
+
+      appState.leads.unshift(newLead);
+      saveLeadsToStorage();
+
+      renderConfirmationScreen(result, newLead);
+      goToStep('CONFIRMATION');
+    } else if (response.status === 409) {
+      // Teléfono duplicado
+      showErrorBanner(stepId, 'Este número de teléfono ya se encuentra registrado. Por favor, verifica tus datos o comunícate con un asesor.');
+    } else if (response.status === 400) {
+      // Errores de validación del servidor
+      showErrorBanner(stepId, 'Hubo un error de validación en los datos ingresados. Por favor revisa que el formato del correo y teléfono sean correctos o reintenta más tarde.');
+    } else {
+      // Otros fallos del servidor (500 / Disconexión)
+      showErrorBanner(stepId, `Ocurrió un problema en el servidor (HTTP ${response.status}). Por favor revisa la información ingresada o reintenta más tarde.`);
+    }
+  } catch (error) {
+    // Fallos de red (Servidor desconectado / CORS / Sin internet)
+    console.error('Error de red al conectar con el backend:', error);
+    showErrorBanner(stepId, 'No fue posible conectar con el servidor. Verifica tu conexión a internet o reintenta más tarde.');
+  } finally {
+    // Desbloquear botón y restaurar estado
+    if (btn) {
+      btn.disabled = false;
+      btn.style.opacity = '1';
+      btn.style.cursor = 'pointer';
+      btn.innerHTML = originalText;
+    }
+  }
 }
 
 function renderConfirmationScreen(res, lead) {
@@ -460,12 +626,13 @@ function resetForm() {
   appState.formData = {
     roleOption: '',
     roleCategory: '',
-    usoIntencion: '',
+    intencionUso: '',
     horizonteCompra: '',
     formaPago: '',
     presupuesto: '',
     nombreComprador: '',
     whatsappComprador: '',
+    emailComprador: '',
     canalContacto: '',
     nombreBroker: '',
     emailBroker: '',
@@ -474,12 +641,17 @@ function resetForm() {
     whatsappBroker: '',
     empresaProveedor: '',
     contactoProveedor: '',
+    telefonoProveedor: '',
     servicioProveedor: '',
     emailProveedor: ''
   };
 
+  hideErrorBanner('B5');
+  hideErrorBanner('C2');
+  hideErrorBanner('D1');
+
   document.querySelectorAll('.option-card').forEach(c => c.classList.remove('selected'));
-  document.querySelectorAll('.form-input, .form-textarea').forEach(i => i.value = '');
+  document.querySelectorAll('.form-input, .form-textarea, .form-select').forEach(i => i.value = '');
 }
 
 // Modal Handlers (Admin Dashboard & GHL Inspector)
@@ -508,27 +680,39 @@ function showGHLPayloadModal(lead, res) {
   const title = document.getElementById('modal-title-text');
   const body = document.getElementById('modal-body-container');
 
-  title.innerHTML = `⚡ Payload de Webhook a GoHighLevel (GHL)`;
+  title.innerHTML = `⚡ Payloads del Backend & Webhook GHL`;
 
-  const payloadData = {
+  const backendPayload = lead.payloadSent || {
+    nombre: lead.nombre,
+    telefono: lead.whatsapp,
+    email: lead.email !== 'Sin correo' ? lead.email : undefined,
+    rol: lead.rawDetails?.roleOption || 'comprador',
+    origen: "web",
+    intencionUso: lead.rawDetails?.intencionUso,
+    horizonteCompra: lead.rawDetails?.horizonteCompra,
+    formaPago: lead.rawDetails?.formaPago,
+    presupuesto: lead.rawDetails?.presupuesto
+  };
+
+  const ghlWebhookData = {
     event: "contact_created_or_updated",
-    locationId: "VILLA_VICARIO_GHL_LOC_01",
+    locationId: GHL_LOCATION_ID,
     timestamp: lead.timestamp,
     contact: {
       id: lead.id,
       name: lead.nombre,
       phone: lead.whatsapp,
       email: lead.email,
-      tags: [lead.tag, "origen_ig_fb", "villa_vicario_reventa"],
+      tags: [lead.tag, "origen_web", "villa_vicario_reventa"],
       customFields: {
         arquetipo: lead.arquetipo,
-        intencion_uso: lead.rawDetails.usoIntencion || "N/A",
-        horizonte_compra: lead.rawDetails.horizonteCompra || "N/A",
-        forma_pago: lead.rawDetails.formaPago || "N/A",
-        presupuesto_aprox: lead.rawDetails.presupuesto || "N/A",
-        canal_preferido: lead.rawDetails.canalContacto || "WhatsApp",
-        perfil_broker: lead.rawDetails.perfilCliente || "N/A",
-        empresa_proveedor: lead.rawDetails.empresaProveedor || "N/A"
+        intencion_uso: getDisplayName(lead.rawDetails?.intencionUso),
+        horizonte_compra: getDisplayName(lead.rawDetails?.horizonteCompra),
+        forma_pago: getDisplayName(lead.rawDetails?.formaPago),
+        presupuesto_aprox: getDisplayName(lead.rawDetails?.presupuesto),
+        canal_preferido: lead.rawDetails?.canalContacto || "WhatsApp",
+        perfil_broker: lead.rawDetails?.perfilCliente || "N/A",
+        empresa_proveedor: lead.rawDetails?.empresaProveedor || "N/A"
       }
     },
     routingEngine: {
@@ -541,10 +725,15 @@ function showGHLPayloadModal(lead, res) {
   };
 
   body.innerHTML = `
-    <p style="color: var(--text-secondary); margin-bottom: 1rem; font-size: 0.9rem;">
-      Este es el JSON exacto transmitido hacia la API o Webhook de GoHighLevel (GHL) para disparar las automatizaciones de enrutamiento:
-    </p>
-    <pre class="json-code">${JSON.stringify(payloadData, null, 2)}</pre>
+    <h4 style="color: var(--accent-gold); font-size: 0.85rem; margin-bottom: 0.5rem; text-transform: uppercase; letter-spacing: 0.05em;">
+      1. Payload HTTP POST Transmitido al Backend (/qualification/submit)
+    </h4>
+    <pre class="json-code" style="margin-bottom: 1.5rem;">${JSON.stringify(backendPayload, null, 2)}</pre>
+
+    <h4 style="color: var(--accent-gold); font-size: 0.85rem; margin-bottom: 0.5rem; text-transform: uppercase; letter-spacing: 0.05em;">
+      2. Evento Webhook hacia GoHighLevel (GHL)
+    </h4>
+    <pre class="json-code">${JSON.stringify(ghlWebhookData, null, 2)}</pre>
   `;
 
   backdrop.classList.add('open');
