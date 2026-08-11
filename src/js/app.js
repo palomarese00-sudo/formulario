@@ -322,10 +322,13 @@ function initFormButtons() {
   });
 
   // Restart Form
-  document.getElementById('btn-restart-form').addEventListener('click', () => {
-    resetForm();
-    goToStep('A1');
-  });
+  const btnRestart = document.getElementById('btn-restart-form');
+  if (btnRestart) {
+    btnRestart.addEventListener('click', () => {
+      resetForm();
+      goToStep('A1');
+    });
+  }
 }
 
 // Navigation Helper
